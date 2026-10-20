@@ -2,10 +2,10 @@ import React from 'react';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 const SAMPLE_PROMPTS = [
-  'What is my Valorant K/D ratio this week?',
-  'Show my top performing post on X',
-  'Compare my Twitch watch hours vs last month',
-  'Summarize my Steam playtime this weekend',
+  'How are my Apex Legends stats and K/D this week?',
+  'What is my Warzone win rate and K/D?',
+  'How did my top TikTok post perform?',
+  'Show my YouTube views, likes, and comments',
 ];
 
 interface QuickPromptChipsProps {

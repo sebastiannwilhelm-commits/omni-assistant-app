@@ -1,11 +1,9 @@
 import express, { Request, Response } from 'express';
 import cors from 'cors';
-import dotenv from 'dotenv';
-
-dotenv.config();
+import { env, hasConfiguredGeminiApiKey } from './config/env';
+import { runAssistantChat } from './services/geminiService';
 
 const app = express();
-const PORT = Number(process.env.PORT) || 3001;
 
 app.use(cors());
 app.use(express.json());
@@ -16,6 +14,7 @@ interface ChatRequestBody {
 
 interface ChatResponseBody {
   reply: string;
+  toolsUsed?: string[];
   timestamp: string;
 }
 
@@ -23,28 +22,54 @@ app.get('/health', (_req: Request, res: Response) => {
   res.status(200).json({
     status: 'ok',
     service: 'omni-assistant-server',
+    geminiConfigured: hasConfiguredGeminiApiKey(),
     timestamp: new Date().toISOString(),
   });
 });
 
-app.post('/chat', (req: Request<Record<string, never>, ChatResponseBody | { error: string }, ChatRequestBody>, res: Response) => {
-  const { prompt } = req.body ?? {};
+app.post(
+  '/chat',
+  async (
+    req: Request<
+      Record<string, never>,
+      ChatResponseBody | { error: string },
+      ChatRequestBody
+    >,
+    res: Response
+  ) => {
+    const { prompt } = req.body ?? {};
 
-  if (!prompt || typeof prompt !== 'string' || !prompt.trim()) {
-    res.status(400).json({
-      error: 'A non-empty "prompt" string is required.',
-    });
-    return;
+    if (!prompt || typeof prompt !== 'string' || !prompt.trim()) {
+      res.status(400).json({
+        error: 'A non-empty "prompt" string is required.',
+      });
+      return;
+    }
+
+    try {
+      const { reply, toolsUsed } = await runAssistantChat(prompt.trim());
+
+      res.status(200).json({
+        reply,
+        toolsUsed,
+        timestamp: new Date().toISOString(),
+      });
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : 'Failed to process chat request with Gemini.';
+      console.error('[/chat Error]:', message);
+
+      res.status(500).json({
+        error: message,
+      });
+    }
   }
+);
 
-  const trimmedPrompt = prompt.trim();
-
-  res.status(200).json({
-    reply: `Omni-Assistant (placeholder): I received your question — "${trimmedPrompt}". Your gaming & social media stats integrations will be connected here soon!`,
-    timestamp: new Date().toISOString(),
-  });
-});
-
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`[Omni-Assistant Server] Listening on http://localhost:${PORT}`);
+app.listen(env.port, '0.0.0.0', () => {
+  console.log(
+    `[Omni-Assistant Server] Listening on http://localhost:${env.port} (Gemini API key configured: ${hasConfiguredGeminiApiKey()})`
+  );
 });
