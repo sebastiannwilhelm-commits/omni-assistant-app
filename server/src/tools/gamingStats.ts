@@ -1,125 +1,193 @@
 import { FunctionDeclaration, Type } from '@google/genai';
+import { env, hasConfiguredTrnApiKey } from '../config/env';
 
-export interface PlayerGameStats {
-  gameTitle: string;
-  timeRange: string;
-  matchesPlayed: number;
-  kills: number;
-  deaths: number;
-  kdRatio: number;
-  winRatePercent: number;
-  headshotPercent: number;
-  hoursPlayed: number;
-  signatureLoadoutOrHero: string;
-  recentTrend: string;
+const TRN_APEX_BASE_URL =
+  'https://public-api.tracker.gg/apex/v1/standard/profile';
+
+export interface TrnStatEntry {
+  metadata?: {
+    key?: string;
+    name?: string;
+    categoryKey?: string;
+    categoryName?: string;
+    isReversed?: boolean;
+  };
+  value?: number;
+  percentile?: number;
+  rank?: number;
+  displayValue?: string;
+  displayRank?: string;
+}
+
+export interface TrnApexProfileResponse {
+  data?: {
+    id?: string;
+    type?: string;
+    metadata?: {
+      platformId?: number;
+      platformSlug?: string;
+      platformUserHandle?: string;
+      accountId?: string;
+      cacheExpireDate?: string;
+      level?: number;
+    };
+    stats?: TrnStatEntry[];
+    children?: Array<{
+      id?: string;
+      type?: string;
+      metadata?: {
+        legend_name?: string;
+        icon?: string;
+        bgimage?: string;
+        is_active?: boolean;
+      };
+      stats?: TrnStatEntry[];
+    }>;
+  };
+  errors?: Array<{ message?: string }>;
 }
 
 export const getPlayerGameStatsDeclaration: FunctionDeclaration = {
   name: 'get_player_game_stats',
   description:
-    'Retrieves the user\'s personal gaming performance statistics (kills, deaths, K/D ratio, win rate, matches played, and recent trend) for a specified game title such as Apex Legends, Call of Duty: Warzone, Valorant, Fortnite, or Steam titles.',
+    'Fetches live Apex Legends player statistics from the Tracker Network API (https://public-api.tracker.gg/apex/v1/standard/profile/{platform}/{username}).',
   parameters: {
     type: Type.OBJECT,
     properties: {
-      game_title: {
+      platform: {
         type: Type.STRING,
         description:
-          'Name of the game title to query (e.g., "Apex Legends", "Warzone", "Valorant", "Fortnite", "Counter-Strike 2").',
+          'Platform identifier for Tracker Network Apex API: "5" (or "origin"/"pc"), "2" (or "psn"/"playstation"), or "1" (or "xbl"/"xbox"). Defaults to TRN_DEFAULT_PLATFORM ("5").',
       },
-      time_range: {
+      username: {
         type: Type.STRING,
         description:
-          'Optional time window for the stats, such as "this_week", "last_month", or "lifetime". Defaults to "this_week".',
+          'Player username / gamer tag on the specified platform. Uses TRN_DEFAULT_USERNAME if omitted.',
       },
     },
-    required: ['game_title'],
+    required: ['username'],
   },
 };
 
-const MOCK_GAME_DATABASE: Record<string, Omit<PlayerGameStats, 'timeRange'>> = {
-  apex: {
-    gameTitle: 'Apex Legends',
-    matchesPlayed: 42,
-    kills: 118,
-    deaths: 64,
-    kdRatio: 1.84,
-    winRatePercent: 14.3,
-    headshotPercent: 22.5,
-    hoursPlayed: 16.5,
-    signatureLoadoutOrHero: 'Wraith (R-301 + Peacekeeper)',
-    recentTrend: '+12% K/D improvement compared to last week',
-  },
-  warzone: {
-    gameTitle: 'Call of Duty: Warzone',
-    matchesPlayed: 31,
-    kills: 149,
-    deaths: 72,
-    kdRatio: 2.07,
-    winRatePercent: 16.1,
-    headshotPercent: 27.8,
-    hoursPlayed: 14.2,
-    signatureLoadoutOrHero: 'MCW + HRM-9 Overkill',
-    recentTrend: '3 top-3 finishes in the last 5 matches',
-  },
-  valorant: {
-    gameTitle: 'Valorant',
-    matchesPlayed: 19,
-    kills: 342,
-    deaths: 261,
-    kdRatio: 1.31,
-    winRatePercent: 57.9,
-    headshotPercent: 29.4,
-    hoursPlayed: 12.8,
-    signatureLoadoutOrHero: 'Jett / Omen (Vandal)',
-    recentTrend: 'Promoted to Ascendant II (+48 RR net this week)',
-  },
-  fortnite: {
-    gameTitle: 'Fortnite',
-    matchesPlayed: 27,
-    kills: 96,
-    deaths: 23,
-    kdRatio: 4.17,
-    winRatePercent: 18.5,
-    headshotPercent: 24.0,
-    hoursPlayed: 9.4,
-    signatureLoadoutOrHero: 'Zero Build Ranked',
-    recentTrend: '5 Crowned Victory Royales this week',
-  },
-};
+function normalizeTrnPlatform(rawPlatform?: string): string {
+  const value = (rawPlatform || env.trnDefaultPlatform || '5')
+    .trim()
+    .toLowerCase();
 
-export function getPlayerGameStats(args: {
-  game_title?: string;
-  time_range?: string;
-}): PlayerGameStats {
-  const rawTitle = (args.game_title || 'Apex Legends').trim();
-  const timeRange = (args.time_range || 'this_week').trim();
-  const normalized = rawTitle.toLowerCase();
+  switch (value) {
+    case '5':
+    case 'pc':
+    case 'origin':
+    case 'steam':
+      return '5';
+    case '2':
+    case 'psn':
+    case 'ps4':
+    case 'ps5':
+    case 'playstation':
+      return '2';
+    case '1':
+    case 'xbl':
+    case 'xbox':
+      return '1';
+    default:
+      return value;
+  }
+}
 
-  if (normalized.includes('apex')) {
-    return { ...MOCK_GAME_DATABASE.apex, timeRange };
-  }
-  if (normalized.includes('warzone') || normalized.includes('cod') || normalized.includes('call of duty')) {
-    return { ...MOCK_GAME_DATABASE.warzone, timeRange };
-  }
-  if (normalized.includes('valorant') || normalized.includes('val')) {
-    return { ...MOCK_GAME_DATABASE.valorant, timeRange };
-  }
-  if (normalized.includes('fortnite')) {
-    return { ...MOCK_GAME_DATABASE.fortnite, timeRange };
+export async function getPlayerGameStats(args: {
+  platform?: string;
+  username?: string;
+}): Promise<Record<string, unknown>> {
+  const platform = normalizeTrnPlatform(args.platform);
+  const username = (args.username || env.trnDefaultUsername || '').trim();
+
+  if (!username) {
+    return {
+      status: 'error',
+      error:
+        'A player username is required to query the Tracker Network Apex Legends API. Please provide a username (and optional platform: PC/Origin, PSN, or Xbox) or set TRN_DEFAULT_USERNAME in server/.env.',
+    };
   }
 
-  // Deterministic fallback for any other requested game title
-  return {
-    gameTitle: rawTitle,
-    timeRange,
-    matchesPlayed: 24,
-    kills: 87,
-    deaths: 58,
-    kdRatio: 1.5,
-    winRatePercent: 54.2,
-    headshotPercent: 21.0,
-    hoursPlayed: 11.3,
-    signatureLoadoutOrHero: 'All-Rounder Main',
-    recentTrend: 'Steady upward trajectory over the last 10 sessions',
-  };
+  if (!hasConfiguredTrnApiKey()) {
+    return {
+      status: 'unconfigured',
+      endpoint: `${TRN_APEX_BASE_URL}/${platform}/${encodeURIComponent(username)}`,
+      error:
+        'TRN_API_KEY is not configured in server/.env. Set TRN_API_KEY to your Tracker Network API key to fetch live Apex Legends stats.',
+    };
+  }
+
+  const url = `${TRN_APEX_BASE_URL}/${encodeURIComponent(
+    platform
+  )}/${encodeURIComponent(username)}`;
+
+  try {
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'TRN-Api-Key': env.trnApiKey,
+        Accept: 'application/json',
+      },
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      return {
+        status: 'api_error',
+        httpStatus: response.status,
+        endpoint: url,
+        error: `Tracker Network API returned HTTP ${response.status}`,
+        details: errorText.slice(0, 500),
+      };
+    }
+
+    const payload = (await response.json()) as TrnApexProfileResponse;
+    const profile = payload.data;
+
+    const overviewStats: Record<string, { value?: number; displayValue?: string; percentile?: number }> = {};
+    for (const stat of profile?.stats ?? []) {
+      const key = stat.metadata?.key || stat.metadata?.name;
+      if (key) {
+        overviewStats[key] = {
+          value: stat.value,
+          displayValue: stat.displayValue,
+          percentile: stat.percentile,
+        };
+      }
+    }
+
+    const legends = (profile?.children ?? []).map((child) => ({
+      legendName: child.metadata?.legend_name,
+      isActive: Boolean(child.metadata?.is_active),
+      stats: (child.stats ?? []).map((s) => ({
+        name: s.metadata?.name || s.metadata?.key,
+        value: s.value,
+        displayValue: s.displayValue,
+      })),
+    }));
+
+    return {
+      status: 'ok',
+      source: 'Tracker Network Apex Legends API v1',
+      endpoint: url,
+      player: {
+        username: profile?.metadata?.platformUserHandle || username,
+        platformId: profile?.metadata?.platformId ?? platform,
+        level: profile?.metadata?.level,
+      },
+      overviewStats,
+      legends,
+    };
+  } catch (error) {
+    return {
+      status: 'network_error',
+      endpoint: url,
+      error:
+        error instanceof Error
+          ? error.message
+          : 'Failed to reach Tracker Network API.',
+    };
+  }
 }

@@ -13,32 +13,28 @@ export const toolDeclarations: FunctionDeclaration[] = [
   getSocialPostMetricsDeclaration,
 ];
 
-export function executeToolCall(
+export async function executeToolCall(
   name: string,
   args: Record<string, unknown> = {}
-): Record<string, unknown> {
+): Promise<Record<string, unknown>> {
   switch (name) {
     case 'get_player_game_stats':
-      return {
-        ...getPlayerGameStats({
-          game_title:
-            typeof args.game_title === 'string' ? args.game_title : undefined,
-          time_range:
-            typeof args.time_range === 'string' ? args.time_range : undefined,
-        }),
-      };
+      return await getPlayerGameStats({
+        platform:
+          typeof args.platform === 'string' ? args.platform : undefined,
+        username:
+          typeof args.username === 'string' ? args.username : undefined,
+      });
 
     case 'get_social_post_metrics':
-      return {
-        ...getSocialPostMetrics({
-          platform:
-            typeof args.platform === 'string' ? args.platform : undefined,
-          metric_focus:
-            typeof args.metric_focus === 'string'
-              ? args.metric_focus
-              : undefined,
-        }),
-      };
+      return await getSocialPostMetrics({
+        max_videos:
+          typeof args.max_videos === 'number' ? args.max_videos : undefined,
+        include_user_info:
+          typeof args.include_user_info === 'boolean'
+            ? args.include_user_info
+            : undefined,
+      });
 
     default:
       return {

@@ -3,11 +3,11 @@ import { env, hasConfiguredGeminiApiKey } from '../config/env';
 import { executeToolCall, toolDeclarations } from '../tools';
 
 const SYSTEM_INSTRUCTION = `You are Omni-Assistant, a friendly and insightful personal AI stats assistant for gamers and content creators.
-You have access to two tools:
-1. "get_player_game_stats": fetches the user's personal gaming stats (kills, deaths, K/D ratio, win rate, matches played, loadout, and recent trends) for titles like Apex Legends, Warzone, Valorant, Fortnite, etc.
-2. "get_social_post_metrics": fetches the user's social media analytics (views, likes, comments, shares, engagement rate, watch time hours, and top post title) for platforms like TikTok, YouTube, X, and Twitch.
+You have access to two live API tools:
+1. "get_player_game_stats": queries the Tracker Network API (https://public-api.tracker.gg/apex/v1/standard/profile/{platform}/{username}) for Apex Legends stats using the TRN-Api-Key header.
+2. "get_social_post_metrics": queries the TikTok Display API (/v2/user/info/ and /v2/video/list/) using the user's OAuth 2.0 Bearer access token.
 
-Always call the appropriate tool(s) when the user asks about their gaming performance or social media metrics, then synthesize the returned numbers into a clear, encouraging, and concise conversational answer.`;
+Always call the appropriate tool(s) when the user asks about their Apex Legends performance or TikTok analytics. If a tool reports that an API key, username, or OAuth token is not yet configured in server/.env, clearly explain what environment variable or parameter is needed.`;
 
 export interface AssistantChatResult {
   reply: string;
@@ -59,21 +59,23 @@ export async function runAssistantChat(
       contents.push(modelCandidateContent);
     }
 
-    const functionResponseParts: Part[] = functionCalls.map((call) => {
-      const toolName = call.name || 'unknown_tool';
-      const toolArgs = (call.args as Record<string, unknown>) || {};
-      toolsUsed.push(toolName);
+    const functionResponseParts: Part[] = await Promise.all(
+      functionCalls.map(async (call) => {
+        const toolName = call.name || 'unknown_tool';
+        const toolArgs = (call.args as Record<string, unknown>) || {};
+        toolsUsed.push(toolName);
 
-      const result = executeToolCall(toolName, toolArgs);
+        const result = await executeToolCall(toolName, toolArgs);
 
-      return {
-        functionResponse: {
-          id: call.id,
-          name: toolName,
-          response: result,
-        },
-      };
-    });
+        return {
+          functionResponse: {
+            id: call.id,
+            name: toolName,
+            response: result,
+          },
+        };
+      })
+    );
 
     contents.push({
       role: 'user',

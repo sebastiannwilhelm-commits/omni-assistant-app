@@ -1,118 +1,185 @@
 import { FunctionDeclaration, Type } from '@google/genai';
+import { env, hasConfiguredTikTokToken } from '../config/env';
 
-export interface SocialPostMetrics {
-  platform: string;
-  metricFocus: string;
-  views: number;
-  likes: number;
-  comments: number;
-  shares: number;
-  engagementRatePercent: number;
-  watchTimeHours: number;
-  followerChangeThisPeriod: string;
-  topPostTitle: string;
-}
+const TIKTOK_USER_INFO_ENDPOINT = 'https://open.tiktokapis.com/v2/user/info/';
+const TIKTOK_VIDEO_LIST_ENDPOINT = 'https://open.tiktokapis.com/v2/video/list/';
+
+// Placeholder for a user's OAuth 2.0 access token (loaded from TIKTOK_ACCESS_TOKEN in .env if set)
+export const TIKTOK_OAUTH_ACCESS_TOKEN_PLACEHOLDER =
+  'YOUR_TIKTOK_OAUTH_ACCESS_TOKEN_HERE';
+
+const USER_INFO_FIELDS = [
+  'open_id',
+  'union_id',
+  'avatar_url',
+  'display_name',
+  'bio_description',
+  'follower_count',
+  'following_count',
+  'likes_count',
+  'video_count',
+].join(',');
+
+const VIDEO_LIST_FIELDS = [
+  'id',
+  'title',
+  'video_description',
+  'duration',
+  'cover_image_url',
+  'share_url',
+  'view_count',
+  'like_count',
+  'comment_count',
+  'share_count',
+  'create_time',
+].join(',');
 
 export const getSocialPostMetricsDeclaration: FunctionDeclaration = {
   name: 'get_social_post_metrics',
   description:
-    'Retrieves the user\'s social media post and channel metrics (views, likes, comments, shares, engagement rate, watch hours, and top post title) for platforms such as TikTok, YouTube, X (Twitter), Twitch, or Instagram.',
+    'Fetches the user\'s TikTok profile stats (/v2/user/info/) and recent video metrics (/v2/video/list/) via the official TikTok Display API using the user\'s OAuth access token.',
   parameters: {
     type: Type.OBJECT,
     properties: {
-      platform: {
-        type: Type.STRING,
+      max_videos: {
+        type: Type.NUMBER,
         description:
-          'Social media platform to query (e.g., "TikTok", "YouTube", "X", "Twitch", "Instagram").',
+          'Maximum number of recent TikTok videos to retrieve from /v2/video/list/ (1 to 20). Defaults to 10.',
       },
-      metric_focus: {
-        type: Type.STRING,
+      include_user_info: {
+        type: Type.BOOLEAN,
         description:
-          'Optional focus of the query such as "latest_post", "top_performing", or "channel_overview". Defaults to "top_performing".',
+          'Whether to also fetch account-level follower and total like counts from /v2/user/info/. Defaults to true.',
       },
     },
-    required: ['platform'],
   },
 };
 
-const MOCK_SOCIAL_DATABASE: Record<string, Omit<SocialPostMetrics, 'metricFocus'>> = {
-  tiktok: {
-    platform: 'TikTok',
-    views: 84200,
-    likes: 9640,
-    comments: 412,
-    shares: 1285,
-    engagementRatePercent: 13.46,
-    watchTimeHours: 318.5,
-    followerChangeThisPeriod: '+1,420 followers this week',
-    topPostTitle: '1v3 Clutch in Final Ring (Apex Ranked)',
-  },
-  youtube: {
-    platform: 'YouTube',
-    views: 31500,
-    likes: 2890,
-    comments: 347,
-    shares: 410,
-    engagementRatePercent: 11.58,
-    watchTimeHours: 2460.0,
-    followerChangeThisPeriod: '+680 subscribers this month',
-    topPostTitle: 'My Complete Warzone Season Loadout Breakdown & Recoil Guide',
-  },
-  x: {
-    platform: 'X (Twitter)',
-    views: 19400,
-    likes: 1120,
-    comments: 148,
-    shares: 215,
-    engagementRatePercent: 7.64,
-    watchTimeHours: 42.0,
-    followerChangeThisPeriod: '+230 followers this week',
-    topPostTitle: 'Hit Ascendant II solo-queue! Here are my sensitivity settings:',
-  },
-  twitch: {
-    platform: 'Twitch',
-    views: 6840,
-    likes: 920,
-    comments: 4820,
-    shares: 145,
-    engagementRatePercent: 18.2,
-    watchTimeHours: 1890.4,
-    followerChangeThisPeriod: '+195 followers & 34 new subs this month',
-    topPostTitle: 'Late Night Ranked Grind w/ Viewers',
-  },
-};
+export async function fetchTikTokUserInfo(
+  accessToken: string
+): Promise<Record<string, unknown>> {
+  const url = `${TIKTOK_USER_INFO_ENDPOINT}?fields=${encodeURIComponent(
+    USER_INFO_FIELDS
+  )}`;
 
-export function getSocialPostMetrics(args: {
-  platform?: string;
-  metric_focus?: string;
-}): SocialPostMetrics {
-  const rawPlatform = (args.platform || 'TikTok').trim();
-  const metricFocus = (args.metric_focus || 'top_performing').trim();
-  const normalized = rawPlatform.toLowerCase();
+  const response = await fetch(url, {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      Accept: 'application/json',
+    },
+  });
 
-  if (normalized.includes('tiktok') || normalized.includes('tik tok')) {
-    return { ...MOCK_SOCIAL_DATABASE.tiktok, metricFocus };
-  }
-  if (normalized.includes('youtube') || normalized.includes('yt')) {
-    return { ...MOCK_SOCIAL_DATABASE.youtube, metricFocus };
-  }
-  if (normalized === 'x' || normalized.includes('twitter')) {
-    return { ...MOCK_SOCIAL_DATABASE.x, metricFocus };
-  }
-  if (normalized.includes('twitch')) {
-    return { ...MOCK_SOCIAL_DATABASE.twitch, metricFocus };
+  const body = (await response.json().catch(() => ({}))) as Record<
+    string,
+    unknown
+  >;
+
+  if (!response.ok) {
+    return {
+      ok: false,
+      httpStatus: response.status,
+      endpoint: TIKTOK_USER_INFO_ENDPOINT,
+      error: body,
+    };
   }
 
   return {
-    platform: rawPlatform,
-    metricFocus,
-    views: 14200,
-    likes: 1380,
-    comments: 164,
-    shares: 205,
-    engagementRatePercent: 12.31,
-    watchTimeHours: 140.2,
-    followerChangeThisPeriod: '+310 followers this period',
-    topPostTitle: 'Weekly Highlights Reel #14',
+    ok: true,
+    endpoint: TIKTOK_USER_INFO_ENDPOINT,
+    data: body.data ?? body,
   };
+}
+
+export async function fetchTikTokVideoList(
+  accessToken: string,
+  maxCount = 10
+): Promise<Record<string, unknown>> {
+  const boundedCount = Math.min(Math.max(Math.trunc(maxCount) || 10, 1), 20);
+  const url = `${TIKTOK_VIDEO_LIST_ENDPOINT}?fields=${encodeURIComponent(
+    VIDEO_LIST_FIELDS
+  )}`;
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+    },
+    body: JSON.stringify({
+      max_count: boundedCount,
+    }),
+  });
+
+  const body = (await response.json().catch(() => ({}))) as Record<
+    string,
+    unknown
+  >;
+
+  if (!response.ok) {
+    return {
+      ok: false,
+      httpStatus: response.status,
+      endpoint: TIKTOK_VIDEO_LIST_ENDPOINT,
+      error: body,
+    };
+  }
+
+  return {
+    ok: true,
+    endpoint: TIKTOK_VIDEO_LIST_ENDPOINT,
+    data: body.data ?? body,
+  };
+}
+
+export async function getSocialPostMetrics(args: {
+  max_videos?: number;
+  include_user_info?: boolean;
+}): Promise<Record<string, unknown>> {
+  const accessToken =
+    env.tiktokAccessToken || TIKTOK_OAUTH_ACCESS_TOKEN_PLACEHOLDER;
+  const maxVideos = typeof args.max_videos === 'number' ? args.max_videos : 10;
+  const includeUserInfo = args.include_user_info !== false;
+
+  if (!hasConfiguredTikTokToken()) {
+    return {
+      status: 'unconfigured_oauth_token',
+      platform: 'TikTok Display API v2',
+      endpoints: {
+        userInfo: `${TIKTOK_USER_INFO_ENDPOINT}?fields=${USER_INFO_FIELDS}`,
+        videoList: `${TIKTOK_VIDEO_LIST_ENDPOINT}?fields=${VIDEO_LIST_FIELDS}`,
+      },
+      oauthTokenPlaceholder: TIKTOK_OAUTH_ACCESS_TOKEN_PLACEHOLDER,
+      message:
+        'TikTok OAuth access token is currently set to the placeholder value. Set TIKTOK_ACCESS_TOKEN in server/.env with a valid user OAuth 2.0 Bearer token (scopes: user.info.basic, user.info.stats, video.list) to fetch live TikTok metrics.',
+    };
+  }
+
+  try {
+    const [userInfoResult, videoListResult] = await Promise.all([
+      includeUserInfo ? fetchTikTokUserInfo(accessToken) : Promise.resolve(null),
+      fetchTikTokVideoList(accessToken, maxVideos),
+    ]);
+
+    return {
+      status: 'ok',
+      platform: 'TikTok Display API v2',
+      userInfo: userInfoResult,
+      videoList: videoListResult,
+    };
+  } catch (error) {
+    return {
+      status: 'network_error',
+      platform: 'TikTok Display API v2',
+      endpoints: {
+        userInfo: TIKTOK_USER_INFO_ENDPOINT,
+        videoList: TIKTOK_VIDEO_LIST_ENDPOINT,
+      },
+      error:
+        error instanceof Error
+          ? error.message
+          : 'Failed to reach TikTok Display API endpoints.',
+    };
+  }
 }
